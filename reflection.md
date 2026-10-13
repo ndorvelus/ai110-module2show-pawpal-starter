@@ -7,6 +7,8 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+--- Classes: Pet (info on the pet), Owner(info on owner),Task(walks,feeding,medicine,grooming), Schedule(pet/owner schedules)
+
 **b. Design changes**
 
 - Did your design change during implementation?
