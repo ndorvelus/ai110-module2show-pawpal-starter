@@ -76,14 +76,67 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
-
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Sort by priority | `Schedule.sort_by_priority()` | High priority first, shorter tasks first within a tier |
+| Sort by time | `Schedule.sort_by_time()` | Chronological by `"HH:MM"`; untimed tasks last |
+| Filtering | `Schedule.filter_tasks()` | By pet name and/or completion status |
+| Time-conflict warnings | `Schedule.time_conflict_warnings()` | Same start time, same pet or different pets |
+| Overflow detection | `Schedule.detect_conflicts()` | Pending tasks that don't fit in the owner's available minutes |
+| Recurring tasks | `Pet.complete_task()`, `Task.next_occurrence()` | Daily and weekly tasks regenerate when completed |
+
+### Sorting
+
+`Schedule.sort_by_time(tasks=None)` returns a new list ordered by each task's `time`.
+Zero-padded `"HH:MM"` strings sort chronologically as plain strings, so the sort key is
+just `lambda t: (t.time == "", t.time)`. The first element pushes tasks with no time to
+the end. Python's sort is stable, so tasks with equal times keep their original order.
+Pass a list (for example the output of `filter_tasks`) to sort a subset; with no
+argument it sorts all of the owner's tasks.
+
+`Schedule.sort_by_priority()` is what `generate_plan()` uses to fill the day:
+`(priority rank, duration)` over pending tasks.
+
+### Filtering
+
+`Schedule.filter_tasks(pet_name=None, completed=None)` keeps tasks matching both
+criteria. A criterion left as `None` is ignored, so you can filter by pet only, by
+status only (`completed=False` for pending), or both. Each task carries a `pet_name`,
+set automatically by `Pet.add_task()`, which is what makes pet filtering possible.
+Results can be passed into `sort_by_time()`.
+
+### Conflict detection
+
+`Schedule.time_conflict_warnings()` is a lightweight check that returns a list of
+warning strings instead of raising, so the app keeps running. It buckets pending,
+timed tasks by `(due_date, time)` in a single pass and reports any bucket with two or
+more tasks, for example:
+
+```
+Warning: 3 tasks at 09:00 (pets: Buddy, Whiskers): 'Vet visit' (Buddy), 'Training' (Buddy), 'Medication' (Whiskers)
+```
+
+It catches clashes within one pet and across pets. **Limitation:** it only compares
+exact start times, so a 45-minute task at 08:00 and another at 08:30 are not flagged.
+
+`Schedule.detect_conflicts()` is a separate check: it returns pending tasks that were
+skipped because they don't fit in `Owner.available_minutes`.
+
+### Recurring tasks
+
+`Task.next_occurrence()` builds a pending copy of a `"daily"` (+1 day) or `"weekly"`
+(+1 week) task with an advanced `due_date`, counted from the task's `due_date` or
+from today if it is unset. Other frequencies return `None`.
+
+`Pet.complete_task(task)` marks the task complete and adds the next occurrence to the
+same pet. Use it instead of `Task.mark_complete()` for recurring tasks; the plain
+method only sets the flag and does not create a new task. The completed task stays in
+the list.
+
+**Known gap:** `generate_plan()` does not yet filter by `due_date`, so a future
+occurrence can appear in today's plan.
+
+Run `python main.py` to see all of these on sample data.
 
 ## 📸 Demo Walkthrough
 
