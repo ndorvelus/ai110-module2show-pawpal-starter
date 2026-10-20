@@ -60,19 +60,43 @@ Skipped (not enough time):
 
 ## 🧪 Testing PawPal+
 
+Requires Python 3.10+ (the code uses `X | None` type syntax).
+
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
 
-Sample test output:
+**What the tests cover** (`tests/tests_pawpal.py`):
+
+- **Basics:** `mark_complete` flips a task's status, and `add_task` grows a pet's task list.
+- **Sorting:** `sort_by_time` returns tasks in chronological order with untimed tasks last. A pet with no tasks and an owner with no pets both return empty results without errors.
+- **Recurrence:** completing a daily task creates a pending copy due the next day (including across a month boundary). Weekly tasks advance 7 days, and one-off tasks create nothing.
+- **Conflict detection:** two tasks at the same time are flagged, including across different pets. Tasks at different times and completed tasks are not.
+
+Test output:
 
 ```
-# Paste your pytest output here
+============================= test session starts ==============================
+platform darwin -- Python 3.13.15, pytest-9.1.1, pluggy-1.6.0 -- /Users/nathan/.pyenv/versions/3.13.15/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/nathan/Documents/GitHub/ai110-module2show-pawpal-starter
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.14.2
+collecting ... collected 5 items
+
+tests/tests_pawpal.py::test_mark_complete_changes_status PASSED          [ 20%]
+tests/tests_pawpal.py::test_add_task_increases_pet_task_count PASSED     [ 40%]
+tests/tests_pawpal.py::test_sort_by_time_is_chronological_with_untimed_last_and_empty_pet_ok PASSED [ 60%]
+tests/tests_pawpal.py::test_completing_recurring_task_creates_next_occurrence PASSED [ 80%]
+tests/tests_pawpal.py::test_same_time_tasks_are_flagged_across_pets_but_not_when_completed PASSED [100%]
+
+============================== 5 passed in 0.02s ===============================
 ```
+
+**Confidence Level: ★★★★☆ (4/5)**
+
+All 5 tests pass, and they cover the main behaviors and several edge cases of sorting, recurrence and conflict detection. I'm holding back one star because conflict detection only catches identical start times (a 30-minute task at 08:00 and another at 08:15 are not flagged), and I haven't tested invalid input such as a malformed `HH:MM` time, or the Streamlit UI.
 
 ## 📐 Smarter Scheduling
 
