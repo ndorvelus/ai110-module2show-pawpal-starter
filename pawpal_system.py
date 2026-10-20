@@ -1,7 +1,9 @@
 """PawPal+ domain model: Task, Pet, Owner and Schedule (see diagrams/uml.mmd)."""
 
-from dataclasses import dataclass, field, replace
+import json
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
 
@@ -64,6 +66,20 @@ class Task:
         self.duration_minutes = duration_minutes
         self.priority = priority
 
+    def to_dict(self) -> dict:
+        """Convert to a JSON-safe dict; the only non-JSON field, due_date, becomes ISO text."""
+        data = asdict(self)
+        data["due_date"] = self.due_date.isoformat() if self.due_date else None
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Task":
+        """Rebuild a Task from to_dict() output, re-running validation."""
+        data = dict(data)
+        if data.get("due_date"):
+            data["due_date"] = date.fromisoformat(data["due_date"])
+        return cls(**data)
+
 
 @dataclass
 class Pet:
@@ -102,6 +118,20 @@ class Pet:
         """Return a copy of this pet's task list."""
         return list(self.tasks)
 
+    def to_dict(self) -> dict:
+        """Convert this pet and its tasks to a JSON-safe dict."""
+        data = asdict(self)
+        data["tasks"] = [t.to_dict() for t in self.tasks]
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Pet":
+        """Rebuild a Pet, and its tasks, from to_dict() output."""
+        pet = cls(**{k: v for k, v in data.items() if k != "tasks"})
+        for task_data in data.get("tasks", []):
+            pet.add_task(Task.from_dict(task_data))
+        return pet
+
 
 @dataclass
 class Owner:
@@ -123,6 +153,44 @@ class Owner:
         """Return every task across all of this owner's pets."""
         return [task for pet in self.pets for task in pet.get_tasks()]
 
+    def to_dict(self) -> dict:
+        """Convert this owner, their pets and every task to a JSON-safe dict."""
+        data = asdict(self)
+        data["pets"] = [p.to_dict() for p in self.pets]
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Owner":
+        """Rebuild an Owner, with pets and tasks, from to_dict() output."""
+        owner = cls(**{k: v for k, v in data.items() if k != "pets"})
+        for pet_data in data.get("pets", []):
+            owner.add_pet(Pet.from_dict(pet_data))
+        return owner
+
+    def save_to_json(self, path: str | Path = "data.json") -> None:
+        """Write this owner, their pets and tasks to a JSON file.
+
+        The file is written to a temporary sibling first and then renamed over the
+        target, so a crash mid-write cannot leave a half-written data file.
+        """
+        path = Path(path)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(self.to_dict(), indent=2))
+        tmp.replace(path)
+
+    @classmethod
+    def load_from_json(cls, path: str | Path = "data.json") -> "Owner":
+        """Read an Owner saved by save_to_json.
+
+        Raises:
+            FileNotFoundError: if the file does not exist yet (first run).
+            ValueError: if the file is not valid JSON or holds invalid task data.
+        """
+        try:
+            return cls.from_dict(json.loads(Path(path).read_text()))
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise ValueError(f"{path} is not a valid PawPal+ data file: {exc}") from exc
+
 
 class Schedule:
     """Builds a daily plan from an owner's pending tasks within their time budget."""
@@ -139,6 +207,24 @@ class Schedule:
         pending = [t for t in self.owner.get_all_tasks() if not t.completed]
         return sorted(
             pending, key=lambda t: (PRIORITY_RANK[t.priority], t.duration_minutes)
+        )
+
+    def sort_by_priority_and_time(self, tasks: list[Task] | None = None) -> list[Task]:
+        """Order tasks by priority first (high to low), then by start time.
+
+        Within a priority tier, tasks run chronologically and untimed tasks go last.
+        Python's sort is stable, so ties keep their input order.
+
+        Args:
+            tasks: Tasks to sort; defaults to the owner's pending tasks.
+
+        Returns:
+            A new sorted list. The input is not modified.
+        """
+        if tasks is None:
+            tasks = [t for t in self.owner.get_all_tasks() if not t.completed]
+        return sorted(
+            tasks, key=lambda t: (PRIORITY_RANK[t.priority], t.time == "", t.time)
         )
 
     def sort_by_time(self, tasks: list[Task] | None = None) -> list[Task]:
@@ -223,6 +309,47 @@ class Schedule:
             names = ", ".join(f"'{t.title}' ({t.pet_name})" for t in tasks)
             warnings.append(f"Warning: {len(tasks)} tasks at {at} ({kind}): {names}")
         return warnings
+
+    def find_next_available_slot(
+        self, duration_minutes: int, earliest: str = "08:00", latest: str = "20:00"
+    ) -> str | None:
+        """Find the first start time where a task of this length fits without overlap.
+
+        Collects the busy intervals of pending timed tasks that fall on this
+        schedule's day (a task with no due_date counts as today), sorts them, and
+        sweeps a cursor from `earliest`, jumping past each interval that blocks it.
+        The first gap of at least `duration_minutes` before `latest` wins. This is
+        O(n log n) in the number of timed tasks and, unlike time_conflict_warnings,
+        accounts for task durations, not just identical start times.
+
+        Args:
+            duration_minutes: Length of the task to place; must be positive.
+            earliest: "HH:MM" start of the window to search.
+            latest: "HH:MM" end of the window; the task must finish by then.
+
+        Returns:
+            The start time as "HH:MM", or None if no gap is big enough.
+        """
+        if duration_minutes <= 0:
+            raise ValueError("duration_minutes must be positive")
+
+        def to_minutes(hhmm: str) -> int:
+            parsed = datetime.strptime(hhmm, "%H:%M")
+            return parsed.hour * 60 + parsed.minute
+
+        busy = sorted(
+            (to_minutes(t.time), to_minutes(t.time) + t.duration_minutes)
+            for t in self.owner.get_all_tasks()
+            if t.time and not t.completed and t.due_date in (None, self.day)
+        )
+        cursor, end_of_day = to_minutes(earliest), to_minutes(latest)
+        for start, end in busy:
+            if start - cursor >= duration_minutes:
+                break
+            cursor = max(cursor, end)
+        if end_of_day - cursor >= duration_minutes:
+            return f"{cursor // 60:02d}:{cursor % 60:02d}"
+        return None
 
     def total_duration(self) -> int:
         """Total minutes of the currently planned tasks."""

@@ -1,0 +1,82 @@
+classDiagram
+    class Owner {
+        +str name
+        +int available_minutes
+        +list~str~ preferences
+        +list~Pet~ pets
+        +add_pet(pet) None
+        +remove_pet(pet) None
+        +get_all_tasks() list~Task~
+        +to_dict() dict
+        +from_dict(data)$ Owner
+        +save_to_json(path) None
+        +load_from_json(path)$ Owner
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +int age
+        +list~Task~ tasks
+        +add_task(task) None
+        +remove_task(task) None
+        +complete_task(task) Task
+        +get_tasks() list~Task~
+        +to_dict() dict
+        +from_dict(data)$ Pet
+    }
+
+    class Task {
+        +str title
+        +str category
+        +int duration_minutes
+        +str priority
+        +str frequency
+        +bool completed
+        +str time
+        +str pet_name
+        +date due_date
+        -_validate(duration_minutes, priority)$ None
+        +mark_complete() None
+        +next_occurrence() Task
+        +update(duration_minutes, priority) None
+        +to_dict() dict
+        +from_dict(data)$ Task
+    }
+
+    class Schedule {
+        +date day
+        +list~Task~ planned_tasks
+        +list~Task~ skipped_tasks
+        +generate_plan() list~Task~
+        +sort_by_priority() list~Task~
+        +sort_by_priority_and_time(tasks) list~Task~
+        +sort_by_time(tasks) list~Task~
+        +filter_tasks(pet_name, completed) list~Task~
+        +detect_conflicts() list~Task~
+        +time_conflict_warnings() list~str~
+        +find_next_available_slot(duration_minutes, earliest, latest) str
+        +total_duration() int
+        +explain_plan() str
+    }
+
+    Owner "1" o-- "0..*" Pet : owns
+    Pet "1" *-- "0..*" Task : has
+    Schedule "1" --> "1" Owner : plans for / reads tasks via
+    Schedule "1" o-- "0..*" Task : planned_tasks
+    Schedule "1" o-- "0..*" Task : skipped_tasks
+    Task ..> Task : next_occurrence creates
+    Pet ..> Task : complete_task adds next occurrence
+
+    class display {
+        <<module>>
+        +category_label(category) str
+        +priority_badge(priority) str
+        +status_icon(task) str
+        +task_rows(tasks) list~dict~
+        +format_task_table(tasks) str
+    }
+    display ..> Task : formats
+    Owner ..> Pet : to_dict / from_dict
+    Pet ..> Task : to_dict / from_dict
